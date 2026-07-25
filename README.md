@@ -4,7 +4,7 @@
 
 ## 독립 실행 앱
 
-`dist/AutoMouseMover.app`을 더블클릭하면 VS Code나 터미널 없이 실행됩니다. 앱 창에서 일시 중지, 재시작, 종료할 수 있습니다.
+`dist/AutoMouseMover.app`을 더블클릭하면 VS Code나 터미널 없이 실행됩니다. 앱 창에서 실행 시간을 분 단위 숫자로 입력한 뒤 재시작하면 설정이 적용됩니다. `0`을 입력하면 종료 버튼을 누를 때까지 계속 실행됩니다.
 
 독립 실행 앱의 UI와 마우스 제어는 `native/AutoMouseMover.swift`에 Swift/AppKit으로 구현되어 있습니다.
 

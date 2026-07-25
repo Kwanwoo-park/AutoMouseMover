@@ -5,15 +5,18 @@ import ApplicationServices
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let interval: TimeInterval = 30
     private var window: NSWindow!
-    private var timer: Timer?
+    private var movementTimer: Timer?
+    private var stopTimer: Timer?
     private var statusLabel: NSTextField!
+    private var durationField: NSTextField!
     private var pauseButton: NSButton!
+    private var currentDurationMinutes = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
         buildWindow()
         requestAccessibilityPermission()
-        startTimer()
+        _ = startTimers()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -38,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func buildWindow() {
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 220),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 280),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -56,6 +59,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusLabel.alignment = .center
         statusLabel.maximumNumberOfLines = 2
 
+        let durationLabel = NSTextField(labelWithString: "실행 시간")
+        durationLabel.font = .systemFont(ofSize: 14, weight: .medium)
+
+        durationField = NSTextField(string: "0")
+        durationField.alignment = .right
+        durationField.font = .monospacedDigitSystemFont(ofSize: 14, weight: .regular)
+        durationField.toolTip = "0을 입력하면 종료 버튼을 누를 때까지 계속 실행합니다."
+        durationField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let minutesLabel = NSTextField(labelWithString: "분  (0 = 무제한)")
+        minutesLabel.font = .systemFont(ofSize: 13)
+        minutesLabel.textColor = .secondaryLabelColor
+
+        let durationStack = NSStackView(views: [durationLabel, durationField, minutesLabel])
+        durationStack.orientation = .horizontal
+        durationStack.spacing = 10
+        durationField.widthAnchor.constraint(equalToConstant: 90).isActive = true
+
         pauseButton = makeButton(title: "일시 중지", action: #selector(pause))
         let restartButton = makeButton(title: "재시작", action: #selector(restart))
         restartButton.keyEquivalent = "\r"
@@ -66,9 +87,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         buttonStack.spacing = 12
         buttonStack.distribution = .fillEqually
 
-        let stack = NSStackView(views: [titleLabel, statusLabel, buttonStack])
+        let stack = NSStackView(views: [titleLabel, statusLabel, durationStack, buttonStack])
         stack.orientation = .vertical
-        stack.spacing = 22
+        stack.spacing = 18
         stack.edgeInsets = NSEdgeInsets(top: 24, left: 28, bottom: 24, right: 28)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
@@ -96,22 +117,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    private func startTimer() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(
+    @discardableResult
+    private func startTimers() -> Bool {
+        guard let durationMinutes = enteredDurationMinutes() else {
+            movementTimer?.invalidate()
+            movementTimer = nil
+            stopTimer?.invalidate()
+            stopTimer = nil
+            statusLabel.stringValue = "실행 시간에는 0 이상의 정수를 입력해 주세요."
+            statusLabel.textColor = .systemRed
+            pauseButton.isEnabled = false
+            window.makeFirstResponder(durationField)
+            return false
+        }
+
+        movementTimer?.invalidate()
+        stopTimer?.invalidate()
+        currentDurationMinutes = durationMinutes
+        movementTimer = Timer.scheduledTimer(
             timeInterval: interval,
             target: self,
             selector: #selector(nudgeCursor),
             userInfo: nil,
             repeats: true
         )
+        if durationMinutes > 0 {
+            stopTimer = Timer.scheduledTimer(
+                timeInterval: TimeInterval(durationMinutes) * 60,
+                target: self,
+                selector: #selector(durationReached),
+                userInfo: nil,
+                repeats: false
+            )
+        } else {
+            stopTimer = nil
+        }
         pauseButton.isEnabled = true
         updateRunningStatus()
+        return true
+    }
+
+    private func enteredDurationMinutes() -> Int? {
+        let value = durationField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty,
+              value.allSatisfy({ $0.isNumber }),
+              let minutes = Int(value),
+              minutes >= 0
+        else {
+            return nil
+        }
+        return minutes
     }
 
     private func updateRunningStatus() {
         if AXIsProcessTrusted() {
-            statusLabel.stringValue = "실행 중 • 30초마다 커서를 움직입니다."
+            let durationText = currentDurationMinutes == 0
+                ? "수동 종료 전까지 실행"
+                : "\(currentDurationMinutes)분 후 자동 중지"
+            statusLabel.stringValue = "실행 중 • 30초마다 커서를 움직임 • \(durationText)"
             statusLabel.textColor = .systemGreen
         } else {
             statusLabel.stringValue = "손쉬운 사용 권한을 허용해 주세요.\n허용 후 ‘재시작’을 누르세요."
@@ -145,20 +208,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func pause() {
-        timer?.invalidate()
-        timer = nil
+        movementTimer?.invalidate()
+        movementTimer = nil
+        stopTimer?.invalidate()
+        stopTimer = nil
         statusLabel.stringValue = "일시 중지됨"
         statusLabel.textColor = .secondaryLabelColor
         pauseButton.isEnabled = false
     }
 
     @objc private func restart() {
-        nudgeCursor()
-        startTimer()
+        if startTimers() {
+            nudgeCursor()
+        }
+    }
+
+    @objc private func durationReached() {
+        movementTimer?.invalidate()
+        movementTimer = nil
+        stopTimer = nil
+        statusLabel.stringValue = "설정한 \(currentDurationMinutes)분이 지나 자동 중지됨"
+        statusLabel.textColor = .secondaryLabelColor
+        pauseButton.isEnabled = false
     }
 
     @objc private func quit() {
-        timer?.invalidate()
+        movementTimer?.invalidate()
+        stopTimer?.invalidate()
         NSApp.terminate(nil)
     }
 }
