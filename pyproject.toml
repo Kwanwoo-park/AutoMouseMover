@@ -1,8 +1,11 @@
 [project]
 name = "AutoMouseMover"
 version = "0.1.0"
-description = "Nudge the macOS mouse cursor periodically to prevent screen sleep"
+description = "Nudge the macOS or Windows mouse cursor periodically to prevent screen sleep"
 requires-python = ">=3.10"
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0,<7"]
 
 [tool.pyright]
 include = ["app", "tests"]

@@ -1,4 +1,4 @@
-"""Keep macOS awake by gently nudging the mouse cursor."""
+"""Keep macOS or Windows awake by gently nudging the mouse cursor."""
 
 from __future__ import annotations
 
@@ -20,6 +20,12 @@ class Point(ctypes.Structure):
     """A Core Graphics point."""
 
     _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+
+
+class WindowsPoint(ctypes.Structure):
+    """A Win32 cursor position."""
+
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
 
 
 class MacMouse:
@@ -86,6 +92,48 @@ class MacMouse:
         self.move_to(original)
 
 
+class WindowsMouse:
+    """Small wrapper around the Win32 cursor API."""
+
+    def __init__(self) -> None:
+        if platform.system() != "Windows":
+            raise RuntimeError("이 마우스 구현은 Windows에서만 실행할 수 있습니다.")
+
+        self._user32 = ctypes.WinDLL("user32", use_last_error=True)
+        self._user32.GetCursorPos.argtypes = [ctypes.POINTER(WindowsPoint)]
+        self._user32.GetCursorPos.restype = ctypes.c_bool
+        self._user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+        self._user32.SetCursorPos.restype = ctypes.c_bool
+
+    def position(self) -> WindowsPoint:
+        point = WindowsPoint()
+        if not self._user32.GetCursorPos(ctypes.byref(point)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return point
+
+    def move_to(self, point: WindowsPoint) -> None:
+        if not self._user32.SetCursorPos(point.x, point.y):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def nudge(self) -> None:
+        """Move one pixel horizontally, then return to the original position."""
+        original = self.position()
+        offset = -1 if original.x >= 1 else 1
+        self.move_to(WindowsPoint(original.x + offset, original.y))
+        time.sleep(0.05)
+        self.move_to(original)
+
+
+def create_mouse() -> MacMouse | WindowsMouse:
+    """Create the mouse controller for the current operating system."""
+    system = platform.system()
+    if system == "Darwin":
+        return MacMouse()
+    if system == "Windows":
+        return WindowsMouse()
+    raise RuntimeError("이 프로그램은 macOS와 Windows에서만 실행할 수 있습니다.")
+
+
 def run(
     interval: float,
     nudge: Callable[[], None],
@@ -118,7 +166,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    mouse = MacMouse()
+    mouse = create_mouse()
     print(
         f"실행 중: {args.interval:g}초마다 커서를 움직입니다. "
         "종료하려면 Ctrl+C를 누르세요."
